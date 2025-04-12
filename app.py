@@ -18,7 +18,13 @@ import os
 import docx
 import re
 from io import BytesIO
+import requests
+from urllib.parse import urlencode
+import os
 
+LINKEDIN_CLIENT_ID = os.getenv("LINKEDIN_CLIENT_ID")
+LINKEDIN_CLIENT_SECRET = os.getenv("LINKEDIN_CLIENT_SECRET")
+LINKEDIN_REDIRECT_URI = os.getenv("LINKEDIN_REDIRECT_URI")
 
 app = Flask(__name__)
 CORS(app)
@@ -54,6 +60,60 @@ job_description = ""
 # Google Gemini API Key - consider using environment variables for this in production
 GEMINI_API_KEY = "AIzaSyALGEs16JYUEYoeAjxHHKmgSODzVGEO8is"
 genai.configure(api_key=GEMINI_API_KEY)
+
+@app.route("/linkedin/login")
+def linkedin_login():
+    params = {
+        "response_type": "code",
+        "client_id": LINKEDIN_CLIENT_ID,
+        "redirect_uri": LINKEDIN_REDIRECT_URI,
+        "scope": "openid profile email",
+        "state": "secureRandomString123"  # In production, use secure state management!
+    }
+    auth_url = f"https://www.linkedin.com/oauth/v2/authorization?{urlencode(params)}"
+    return jsonify({"auth_url": auth_url})
+@app.route("/linkedin/callback")
+def linkedin_callback():
+    code = request.args.get("code")
+    if not code:
+        return jsonify({"error": "No code provided"}), 400
+
+    # Exchange code for access token
+    token_url = "https://www.linkedin.com/oauth/v2/accessToken"
+    token_data = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": LINKEDIN_REDIRECT_URI,
+        "client_id": LINKEDIN_CLIENT_ID,
+        "client_secret": LINKEDIN_CLIENT_SECRET
+    }
+
+    token_response = requests.post(token_url, data=token_data)
+    token_json = token_response.json()
+    access_token = token_json.get("access_token")
+
+    if not access_token:
+        return jsonify({"error": "Token exchange failed", "details": token_json}), 400
+
+    headers = {"Authorization": f"Bearer {access_token}"}
+
+    # Try OpenID-standard userinfo endpoint
+    userinfo_url = "https://api.linkedin.com/v2/userinfo"
+    userinfo_response = requests.get(userinfo_url, headers=headers)
+
+    # Fallback to email endpoint in case email is not returned by /userinfo
+    email_url = "https://api.linkedin.com/v2/emailAddress?q=members&projection=(elements*(handle~))"
+    email_response = requests.get(email_url, headers=headers)
+
+    userinfo = userinfo_response.json()
+    email_data = email_response.json()
+    email = email_data.get("elements", [{}])[0].get("handle~", {}).get("emailAddress", "")
+
+    return jsonify({
+        "profile": userinfo,
+        "email": email,
+        "access_token": access_token
+    })
 
 def extract_email_from_resume(text):
     """Extract email address from resume text using regex"""

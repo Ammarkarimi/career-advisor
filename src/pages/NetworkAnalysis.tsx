@@ -116,20 +116,15 @@ const NetworkAnalysis: React.FC = () => {
     connection.industry.toLowerCase().includes(searchTerm.toLowerCase())
   );
   
-  const handleConnectLinkedIn = () => {
+  const handleConnectLinkedIn = async () => {
     setIsLoading(true);
-    
-    // Simulate API call
-    setTimeout(() => {
-      setIsConnected(true);
-      setIsLoading(false);
-      
-      toast({
-        title: "LinkedIn Connected",
-        description: "Your LinkedIn profile has been successfully connected.",
-      });
-    }, 2000);
+  
+    const res = await fetch('http://localhost:5000/linkedin/login');
+    const data = await res.json();
+    window.location.href = data.auth_url;
   };
+  
+  
   
   const handleDisconnect = () => {
     setIsConnected(false);
